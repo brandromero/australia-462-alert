@@ -8,9 +8,13 @@ from zoneinfo import ZoneInfo
 URL = "https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-caps"
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-STATE_FILE = "state.json"
+CHAT_IDS = [
+    os.environ["TELEGRAM_CHAT_ID"],
+    os.environ["TELEGRAM_CHAT_ID_2"]
+]
+
+STATUS_FILE = "state.json"
 
 
 def get_peru_status():
@@ -47,21 +51,22 @@ def get_peru_status():
 def send_telegram(message):
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-    response = requests.post(
-        telegram_url,
-        data={
-            "chat_id": CHAT_ID,
-            "text": message
-        },
-        timeout=30
-    )
+    for chat_id in CHAT_IDS:
+        response = requests.post(
+            telegram_url,
+            data={
+                "chat_id": chat_id,
+                "text": message
+            },
+            timeout=30
+        )
 
-    response.raise_for_status()
+        response.raise_for_status()
 
 
 def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as file:
+    if os.path.exists(STATUS_FILE):
+        with open(STATUS_FILE, "r") as file:
             return json.load(file)
 
     return {
@@ -72,11 +77,10 @@ def load_state():
 
 
 def save_state(state):
-    with open(STATE_FILE, "w") as file:
+    with open(STATUS_FILE, "w") as file:
         json.dump(state, file, indent=2)
 
 
-# UK time
 now = datetime.now(ZoneInfo("Europe/London"))
 today = now.strftime("%Y-%m-%d")
 
@@ -88,10 +92,7 @@ print(f"🇬🇧 UK time: {now}")
 print(f"Previous status: {state['previous_status']}")
 
 
-# --------------------------------------------------
 # FIRST RUN MESSAGE
-# --------------------------------------------------
-
 if not state["initialized"]:
 
     message = f"""🇦🇺🇵🇪 AUSTRALIA 462 CHECKER IS WORKING! ✅
@@ -110,13 +111,10 @@ You will receive:
 
     state["initialized"] = True
 
-    print("📩 First-run test message sent.")
+    print("📩 First-run message sent.")
 
 
-# --------------------------------------------------
 # OPEN ALERT
-# --------------------------------------------------
-
 if status == "OPEN" and state["previous_status"] != "OPEN":
 
     message = """🚨🇦🇺 AUSTRALIA 462 VISA IS OPEN! 🇵🇪
@@ -133,11 +131,7 @@ https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-caps"""
     print("🚨 OPEN ALERT SENT!")
 
 
-# --------------------------------------------------
-# DAILY MESSAGE
-# Around 23:55 UK time
-# --------------------------------------------------
-
+# DAILY MESSAGE AT 23:55 UK TIME
 if now.hour == 23 and now.minute >= 55:
 
     if state["last_daily_message"] != today:
