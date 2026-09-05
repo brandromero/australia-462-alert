@@ -1,6 +1,5 @@
 import requests
 from bs4 import BeautifulSoup
-import time
 import os
 
 URL = "https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-caps"
@@ -8,7 +7,7 @@ URL = "https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-CHECK_INTERVAL = 5 * 60  # 5 minutes
+STATUS_FILE = "status.txt"
 
 
 def get_peru_status():
@@ -21,7 +20,6 @@ def get_peru_status():
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
-
     text = soup.get_text(" ", strip=True)
 
     peru = text.lower().find("peru")
@@ -44,9 +42,7 @@ def get_peru_status():
 
 
 def send_telegram(message):
-    telegram_url = (
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    )
+    telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
     requests.post(
         telegram_url,
@@ -58,18 +54,31 @@ def send_telegram(message):
     )
 
 
+def get_previous_status():
+    if os.path.exists(STATUS_FILE):
+        with open(STATUS_FILE, "r") as file:
+            return file.read().strip()
+
+    return "UNKNOWN"
+
+
+def save_status(status):
+    with open(STATUS_FILE, "w") as file:
+        file.write(status)
+
+
 print("🇦🇺 Australia 462 Peru checker started.")
 
-while True:
+try:
+    status = get_peru_status()
+    previous_status = get_previous_status()
 
-    try:
-        status = get_peru_status()
+    print(f"Peru status: {status}")
+    print(f"Previous status: {previous_status}")
 
-        print(f"Peru status: {status}")
+    if status == "OPEN" and previous_status != "OPEN":
 
-        if status == "OPEN":
-
-            message = """🚨🇦🇺 AUSTRALIA 462 VISA IS OPEN! 🇵🇪
+        message = """🚨🇦🇺 AUSTRALIA 462 VISA IS OPEN! 🇵🇪
 
 Peru's Work and Holiday (subclass 462) cap is now OPEN.
 
@@ -78,12 +87,12 @@ APPLY NOW!
 Official Home Affairs page:
 https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-caps"""
 
-            send_telegram(message)
+        send_telegram(message)
 
-            print("🚨 ALERT SENT!")
-            break
+        print("🚨 ALERT SENT!")
 
-    except Exception as e:
-        print(f"Error: {e}")
+    save_status(status)
 
-    time.sleep(CHECK_INTERVAL)
+except Exception as e:
+    print(f"Error: {e}")
+    raise
