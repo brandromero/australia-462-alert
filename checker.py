@@ -1,13 +1,16 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 URL = "https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-caps"
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-STATUS_FILE = "status.txt"
+STATE_FILE = "state.json"
 
 
 def get_peru_status():
@@ -44,7 +47,7 @@ def get_peru_status():
 def send_telegram(message):
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-    requests.post(
+    response = requests.post(
         telegram_url,
         data={
             "chat_id": CHAT_ID,
@@ -53,32 +56,70 @@ def send_telegram(message):
         timeout=30
     )
 
-
-def get_previous_status():
-    if os.path.exists(STATUS_FILE):
-        with open(STATUS_FILE, "r") as file:
-            return file.read().strip()
-
-    return "UNKNOWN"
+    response.raise_for_status()
 
 
-def save_status(status):
-    with open(STATUS_FILE, "w") as file:
-        file.write(status)
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as file:
+            return json.load(file)
+
+    return {
+        "initialized": False,
+        "previous_status": "UNKNOWN",
+        "last_daily_message": ""
+    }
 
 
-print("🇦🇺 Australia 462 Peru checker started.")
+def save_state(state):
+    with open(STATE_FILE, "w") as file:
+        json.dump(state, file, indent=2)
 
-try:
-    status = get_peru_status()
-    previous_status = get_previous_status()
 
-    print(f"Peru status: {status}")
-    print(f"Previous status: {previous_status}")
+# UK time
+now = datetime.now(ZoneInfo("Europe/London"))
+today = now.strftime("%Y-%m-%d")
 
-    if status == "OPEN" and previous_status != "OPEN":
+state = load_state()
+status = get_peru_status()
 
-        message = """🚨🇦🇺 AUSTRALIA 462 VISA IS OPEN! 🇵🇪
+print(f"🇦🇺 Peru status: {status}")
+print(f"🇬🇧 UK time: {now}")
+print(f"Previous status: {state['previous_status']}")
+
+
+# --------------------------------------------------
+# FIRST RUN MESSAGE
+# --------------------------------------------------
+
+if not state["initialized"]:
+
+    message = f"""🇦🇺🇵🇪 AUSTRALIA 462 CHECKER IS WORKING! ✅
+
+This is the first automatic check.
+
+Current Peru status: {status}
+
+The checker will now continue monitoring every 5 minutes, 24/7.
+
+You will receive:
+🚨 An immediate alert if Peru opens
+🌙 A daily status message at the end of the day"""
+
+    send_telegram(message)
+
+    state["initialized"] = True
+
+    print("📩 First-run test message sent.")
+
+
+# --------------------------------------------------
+# OPEN ALERT
+# --------------------------------------------------
+
+if status == "OPEN" and state["previous_status"] != "OPEN":
+
+    message = """🚨🇦🇺 AUSTRALIA 462 VISA IS OPEN! 🇵🇪
 
 Peru's Work and Holiday (subclass 462) cap is now OPEN.
 
@@ -87,12 +128,48 @@ APPLY NOW!
 Official Home Affairs page:
 https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-caps"""
 
+    send_telegram(message)
+
+    print("🚨 OPEN ALERT SENT!")
+
+
+# --------------------------------------------------
+# DAILY MESSAGE
+# Around 23:55 UK time
+# --------------------------------------------------
+
+if now.hour == 23 and now.minute >= 55:
+
+    if state["last_daily_message"] != today:
+
+        if status == "OPEN":
+            message = f"""🌙🇦🇺 DAILY AUSTRALIA 462 UPDATE
+
+Date: {today}
+
+🚨 PERU IS CURRENTLY OPEN! 🇵🇪
+
+If you haven't applied yet, check the official Home Affairs website now."""
+
+        else:
+            message = f"""🌙🇦🇺 DAILY AUSTRALIA 462 UPDATE
+
+Date: {today}
+
+Peru did not open today.
+
+Current status: {status}
+
+🔄 The checker will continue monitoring every 5 minutes, 24/7."""
+
         send_telegram(message)
 
-        print("🚨 ALERT SENT!")
+        state["last_daily_message"] = today
 
-    save_status(status)
+        print("📩 Daily message sent.")
 
-except Exception as e:
-    print(f"Error: {e}")
-    raise
+
+state["previous_status"] = status
+save_state(state)
+
+print("✅ Check completed.")
