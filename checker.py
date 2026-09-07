@@ -2,15 +2,20 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 URL = "https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-caps"
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+
+CHAT_IDS = [
+    os.environ["TELEGRAM_CHAT_ID"],
+    os.environ["TELEGRAM_CHAT_ID_2"]
+]
 
 STATE_FILE = "state.json"
+UK_TZ = ZoneInfo("Europe/London")
 
 
 def get_peru_status():
@@ -47,16 +52,22 @@ def get_peru_status():
 def send_telegram(message):
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-    response = requests.post(
-        telegram_url,
-        data={
-            "chat_id": CHAT_ID,
-            "text": message
-        },
-        timeout=30
-    )
+    for chat_id in CHAT_IDS:
+        try:
+            response = requests.post(
+                telegram_url,
+                data={
+                    "chat_id": chat_id,
+                    "text": message
+                },
+                timeout=30
+            )
 
-    response.raise_for_status()
+            response.raise_for_status()
+            print(f"Telegram message sent to {chat_id}")
+
+        except Exception as e:
+            print(f"Telegram error for {chat_id}: {e}")
 
 
 def load_state():
@@ -65,9 +76,10 @@ def load_state():
             return json.load(file)
 
     return {
-        "initialized": False,
         "previous_status": "UNKNOWN",
-        "last_daily_message": ""
+        "last_open_message": "",
+        "last_morning_message": "",
+        "last_night_message": ""
     }
 
 
@@ -76,8 +88,7 @@ def save_state(state):
         json.dump(state, file, indent=2)
 
 
-# UK time
-now = datetime.now(ZoneInfo("Europe/London"))
+now = datetime.now(UK_TZ)
 today = now.strftime("%Y-%m-%d")
 
 state = load_state()
@@ -89,32 +100,7 @@ print(f"Previous status: {state['previous_status']}")
 
 
 # --------------------------------------------------
-# FIRST RUN MESSAGE
-# --------------------------------------------------
-
-if not state["initialized"]:
-
-    message = f"""🇦🇺🇵🇪 AUSTRALIA 462 CHECKER IS WORKING! ✅
-
-This is the first automatic check.
-
-Current Peru status: {status}
-
-The checker will now continue monitoring every 5 minutes, 24/7.
-
-You will receive:
-🚨 An immediate alert if Peru opens
-🌙 A daily status message at the end of the day"""
-
-    send_telegram(message)
-
-    state["initialized"] = True
-
-    print("📩 First-run test message sent.")
-
-
-# --------------------------------------------------
-# OPEN ALERT
+# 1. IMMEDIATE OPEN ALERT
 # --------------------------------------------------
 
 if status == "OPEN" and state["previous_status"] != "OPEN":
@@ -130,44 +116,113 @@ https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-caps"""
 
     send_telegram(message)
 
+    state["last_open_message"] = now.isoformat()
+
     print("🚨 OPEN ALERT SENT!")
 
 
 # --------------------------------------------------
-# DAILY MESSAGE
-# Around 23:55 UK time
+# 2. EVERY 30 MINUTES WHILE OPEN
 # --------------------------------------------------
 
-if now.hour == 23 and now.minute >= 55:
+elif status == "OPEN":
 
-    if state["last_daily_message"] != today:
+    last_message = state.get("last_open_message", "")
 
-        if status == "OPEN":
-            message = f"""🌙🇦🇺 DAILY AUSTRALIA 462 UPDATE
+    should_send = False
 
-Date: {today}
+    if not last_message:
+        should_send = True
+    else:
+        try:
+            last_time = datetime.fromisoformat(last_message)
 
-🚨 PERU IS CURRENTLY OPEN! 🇵🇪
+            if now - last_time >= timedelta(minutes=30):
+                should_send = True
 
-If you haven't applied yet, check the official Home Affairs website now."""
+        except Exception:
+            should_send = True
 
-        else:
-            message = f"""🌙🇦🇺 DAILY AUSTRALIA 462 UPDATE
+    if should_send:
 
-Date: {today}
+        message = """🚨🇦🇺 AUSTRALIA 462 UPDATE
 
-Peru did not open today.
+Peru's Work and Holiday (subclass 462) cap is STILL OPEN! 🇵🇪
 
-Current status: {status}
-
-🔄 The checker will continue monitoring every 5 minutes, 24/7."""
+Check the official Home Affairs website and apply as soon as possible."""
 
         send_telegram(message)
 
-        state["last_daily_message"] = today
+        state["last_open_message"] = now.isoformat()
 
-        print("📩 Daily message sent.")
+        print("⏰ 30-MINUTE OPEN UPDATE SENT!")
 
+
+# --------------------------------------------------
+# 3. MORNING MESSAGE — 08:00 UK
+# --------------------------------------------------
+
+if now.hour == 8 and now.minute < 10:
+
+    if state.get("last_morning_message") != today:
+
+        if status == "OPEN":
+            status_text = "🚨 OPEN — Peru's cap is currently OPEN!"
+        elif status == "PAUSED":
+            status_text = "⏸️ PAUSED — Peru's cap is currently PAUSED."
+        else:
+            status_text = f"Current status: {status}"
+
+        message = f"""🌅🇦🇺 AUSTRALIA 462 MORNING UPDATE
+
+Date: {today}
+
+🇵🇪 Peru status:
+{status_text}
+
+The checker is monitoring every 5 minutes."""
+
+        send_telegram(message)
+
+        state["last_morning_message"] = today
+
+        print("🌅 MORNING MESSAGE SENT!")
+
+
+# --------------------------------------------------
+# 4. NIGHT MESSAGE — 23:00 UK
+# --------------------------------------------------
+
+if now.hour == 23 and now.minute < 10:
+
+    if state.get("last_night_message") != today:
+
+        if status == "OPEN":
+            status_text = "🚨 OPEN — Peru's cap is currently OPEN!"
+        elif status == "PAUSED":
+            status_text = "⏸️ PAUSED — Peru's cap is currently PAUSED."
+        else:
+            status_text = f"Current status: {status}"
+
+        message = f"""🌙🇦🇺 AUSTRALIA 462 NIGHT UPDATE
+
+Date: {today}
+
+🇵🇪 Peru status:
+{status_text}
+
+The checker will continue monitoring overnight every 5 minutes."""
+
+        send_telegram(message)
+
+        state["last_night_message"] = today
+
+        print("🌙 NIGHT MESSAGE SENT!")
+
+
+# --------------------------------------------------
+# SAVE CURRENT STATUS
+# --------------------------------------------------
 
 state["previous_status"] = status
 save_state(state)
