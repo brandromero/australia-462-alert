@@ -64,7 +64,7 @@ def send_telegram(message):
             )
 
             response.raise_for_status()
-            print(f"Telegram message sent to {chat_id}")
+            print(f"Telegram message sent successfully to {chat_id}")
 
         except Exception as e:
             print(f"Telegram error for {chat_id}: {e}")
@@ -88,6 +88,37 @@ def save_state(state):
         json.dump(state, file, indent=2)
 
 
+# --------------------------------------------------
+# TEST MESSAGE
+# --------------------------------------------------
+
+if os.environ.get("TEST_MESSAGE") == "true":
+
+    message = """🧪🇦🇺 AUSTRALIA 462 TEST MESSAGE
+
+Your Peru visa checker is working.
+
+This test message was sent to all configured Telegram accounts.
+
+The system will:
+🔎 Check every 5 minutes
+🚨 Alert immediately if Peru opens
+⏰ Send updates every 30 minutes while OPEN
+🌅 Send a morning status
+🌙 Send a night status
+
+Current status will be checked normally after this test."""
+
+    send_telegram(message)
+
+    print("🧪 TEST MESSAGE SENT!")
+    exit()
+
+
+# --------------------------------------------------
+# NORMAL CHECK
+# --------------------------------------------------
+
 now = datetime.now(UK_TZ)
 today = now.strftime("%Y-%m-%d")
 
@@ -100,7 +131,7 @@ print(f"Previous status: {state['previous_status']}")
 
 
 # --------------------------------------------------
-# 1. IMMEDIATE OPEN ALERT
+# IMMEDIATE OPEN ALERT
 # --------------------------------------------------
 
 if status == "OPEN" and state["previous_status"] != "OPEN":
@@ -122,13 +153,12 @@ https://immi.homeaffairs.gov.au/what-we-do/whm-program/status-of-country-caps"""
 
 
 # --------------------------------------------------
-# 2. EVERY 30 MINUTES WHILE OPEN
+# EVERY 30 MINUTES WHILE OPEN
 # --------------------------------------------------
 
 elif status == "OPEN":
 
     last_message = state.get("last_open_message", "")
-
     should_send = False
 
     if not last_message:
@@ -159,7 +189,7 @@ Check the official Home Affairs website and apply as soon as possible."""
 
 
 # --------------------------------------------------
-# 3. MORNING MESSAGE — 08:00 UK
+# MORNING MESSAGE — 08:00 UK
 # --------------------------------------------------
 
 if now.hour == 8 and now.minute < 10:
@@ -190,7 +220,7 @@ The checker is monitoring every 5 minutes."""
 
 
 # --------------------------------------------------
-# 4. NIGHT MESSAGE — 23:00 UK
+# NIGHT MESSAGE — 23:00 UK
 # --------------------------------------------------
 
 if now.hour == 23 and now.minute < 10:
@@ -219,10 +249,6 @@ The checker will continue monitoring overnight every 5 minutes."""
 
         print("🌙 NIGHT MESSAGE SENT!")
 
-
-# --------------------------------------------------
-# SAVE CURRENT STATUS
-# --------------------------------------------------
 
 state["previous_status"] = status
 save_state(state)
