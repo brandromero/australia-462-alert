@@ -3,7 +3,14 @@ name: Australia 462 Peru Alert
 on:
   schedule:
     - cron: "*/5 * * * *"
+
   workflow_dispatch:
+    inputs:
+      test_message:
+        description: "Send a test message to all Telegram accounts"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -34,6 +41,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_CHAT_ID_2: ${{ secrets.TELEGRAM_CHAT_ID_2 }}
+          TEST_MESSAGE: ${{ inputs.test_message || 'false' }}
         run: python checker.py
 
       - name: Save checker state
